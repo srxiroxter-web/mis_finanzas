@@ -6,6 +6,16 @@
   if (window.google && window.google.script && window.google.script.run) return; // dentro de Apps Script no hace falta
 
   var K_URL = 'mf-api-url', K_KEY = 'mf-api-key';
+
+  // Abrir la app con ?reconectar borra la conexión y los datos guardados de esta app, y pide el código de nuevo.
+  if (/[?&#]reconectar\b/.test(window.location.href)) {
+    try {
+      var del = [];
+      for (var i = 0; i < window.localStorage.length; i++) { var k = window.localStorage.key(i); if (k && k.indexOf('mf-') === 0) del.push(k); }
+      del.forEach(function (k) { window.localStorage.removeItem(k); });
+    } catch (e) {}
+    try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+  }
   var mem = {};
   function sget(k) { try { var v = window.localStorage.getItem(k); return v == null ? (mem[k] || '') : v; } catch (e) { return mem[k] || ''; } }
   function sset(k, v) { mem[k] = v; try { window.localStorage.setItem(k, v); } catch (e) {} }
@@ -89,6 +99,23 @@
     if (document.body) build(); else document.addEventListener('DOMContentLoaded', build);
   }
 
+  // Antes de guardar, muestra el NOMBRE de la hoja a la que apunta el código, para no enlazar una copia por error.
+  function askConfirm(c, name) {
+    var safe = String(name).replace(/[&<>"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; });
+    box.firstChild.innerHTML =
+      '<img src="icons/icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:0 0 40px rgba(52,211,153,.25)">' +
+      '<h1 style="font-size:22px;font-weight:600;margin:16px 0 4px">¿Es esta tu hoja?</h1>' +
+      '<p style="color:#94A3B8;font-size:14px;line-height:1.45;margin:0 0 12px">La app va a leer y escribir en:</p>' +
+      '<div id="pwa-sheet" style="background:#111C33;border:1px solid #334155;border-radius:14px;padding:14px;font-size:17px;font-weight:600;word-break:break-word">' + safe + '</div>' +
+      '<p style="color:#FBBF24;font-size:13px;line-height:1.45;margin:12px 0 16px">Si dice "Copia de…" o no es la hoja real que usas, toca <b>Cambiar</b>.</p>' +
+      '<button id="pwa-yes" type="button" style="width:100%;padding:14px;border-radius:14px;border:0;font-size:16px;font-weight:600;color:#06202E;background:linear-gradient(135deg,#38BDF8,#34D399)">Sí, es la mía</button>' +
+      '<button id="pwa-no" type="button" style="width:100%;padding:14px;margin-top:10px;border-radius:14px;border:1px solid #334155;font-size:16px;font-weight:600;color:#F1F5F9;background:transparent">Cambiar</button>';
+    box.querySelector('#pwa-yes').addEventListener('click', function () {
+      sset(K_URL, c.url); sset(K_KEY, c.key); sset('mf-hoja', String(name)); window.location.reload();
+    });
+    box.querySelector('#pwa-no').addEventListener('click', function () { box.parentNode.removeChild(box); box = null; showSetup(''); });
+  }
+
   var busy = false;
   function connect() {
     if (busy) return;
@@ -97,7 +124,10 @@
     if (!c) { err.textContent = 'El código debe verse así: https://script.google.com/…/exec?k=… (cópialo completo).'; return; }
     busy = true; btn.textContent = 'Conectando…'; btn.disabled = true; err.textContent = '';
     post(c.url, c.key, 'ping').then(function (res) {
-      if (res && res.s === 'ok') { sset(K_URL, c.url); sset(K_KEY, c.key); window.location.reload(); return; }
+      if (res && res.s === 'ok') {
+        if (!res.hoja) { err.textContent = 'Tu script todavía no tiene el código nuevo (no informa el nombre de la hoja). Pega el Code.gs nuevo y publica "Nueva versión".'; return; }
+        askConfirm(c, res.hoja); return;
+      }
       err.textContent = res && res.s === 'denied' ? 'La clave no coincide. Copia de nuevo el código desde el Registro de ejecución.' : ((res && res.m) || 'No se pudo conectar.');
     }).catch(function (e) { err.textContent = e.message; })
       .then(function () { busy = false; btn.textContent = 'Conectar'; btn.disabled = false; });

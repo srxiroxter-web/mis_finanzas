@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico — Mis finanzas</title>
+<meta name="theme-color" content="#0F172A">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+ body{margin:0;background:#0F172A;color:#F1F5F9;font:15px/1.45 ui-sans-serif,system-ui,sans-serif;padding:20px;max-width:560px;margin:0 auto}
+ h1{font-size:20px;margin:6px 0 4px} p{color:#94A3B8;margin:0 0 14px}
+ .r{display:flex;gap:10px;padding:10px 12px;margin:8px 0;background:#111C33;border:1px solid #243049;border-radius:12px}
+ .r b{flex:none;width:22px;text-align:center} .ok b{color:#34D399}.no b{color:#F87171}.wa b{color:#FBBF24}.pe b{color:#94A3B8}
+ .r small{display:block;color:#94A3B8} button{width:100%;padding:14px;border:0;border-radius:14px;font-size:16px;font-weight:600;color:#06202E;background:linear-gradient(135deg,#38BDF8,#34D399);margin-top:10px}
+ button[disabled]{opacity:.45}
+</style></head><body>
+<h1>Diagnóstico de instalación</h1>
+<p>Esta página revisa por qué Chrome deja o no deja instalar la app. Espera unos segundos y mándame una captura.</p>
+<div id="out"></div>
+<button id="inst" disabled>Instalar ahora</button>
+<script>
+var out = document.getElementById('out'), rows = {};
+function row(id, st, t, d) {
+  var e = rows[id]; if (!e) { e = rows[id] = document.createElement('div'); out.appendChild(e); }
+  e.className = 'r ' + st; e.innerHTML = '<b>' + ({ ok: '✓', no: '✗', wa: '!', pe: '…' }[st]) + '</b><div>' + t + (d ? '<small>' + d + '</small>' : '') + '</div>';
+}
+var ua = navigator.userAgent;
+row('https', location.protocol === 'https:' ? 'ok' : 'no', 'Conexión segura (https)', location.origin);
+var chrome = /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR\/|MiuiBrowser|Firefox|UCBrowser|Vivaldi|DuckDuckGo/.test(ua);
+row('nav', chrome ? 'ok' : 'wa', chrome ? 'Navegador: Chrome' : 'Navegador distinto de Chrome de Google', ua.slice(0, 110));
+var standalone = window.matchMedia('(display-mode: standalone)').matches;
+row('mode', 'ok', standalone ? 'Estás dentro de la app instalada' : 'Estás en el navegador (no instalada)');
+row('incog', 'pe', 'Revisando si es pestaña de incógnito…');
+if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(function (e) {
+  var mb = Math.round((e.quota || 0) / 1048576);
+  row('incog', mb && mb < 300 ? 'wa' : 'ok', mb && mb < 300 ? 'Parece pestaña de INCÓGNITO (Chrome no deja instalar ahí)' : 'No parece incógnito', 'espacio permitido: ' + mb + ' MB');
+}); else row('incog', 'wa', 'No pude comprobar si es incógnito');
+
+var mlink = document.querySelector('link[rel=manifest]');
+row('man', 'pe', 'Leyendo manifiesto…');
+fetch(mlink.href, { cache: 'no-store' }).then(function (r) {
+  return r.text().then(function (t) { return { r: r, t: t }; });
+}).then(function (x) {
+  var m; try { m = JSON.parse(x.t); } catch (e) { row('man', 'no', 'El manifiesto NO es un JSON válido', 'tipo: ' + x.r.headers.get('content-type') + ' · empieza con: ' + x.t.slice(0, 60).replace(/</g, '&lt;')); return; }
+  var probs = [], sizes = (m.icons || []).map(function (i) { return i.sizes; }).join(' ');
+  if (!m.name && !m.short_name) probs.push('falta el nombre');
+  if (!/192x192/.test(sizes)) probs.push('falta ícono 192');
+  if (!/512x512/.test(sizes)) probs.push('falta ícono 512');
+  if (['standalone', 'fullscreen', 'minimal-ui'].indexOf(m.display) < 0) probs.push('display no es standalone');
+  if (!m.start_url) probs.push('falta start_url');
+  row('man', probs.length ? 'no' : 'ok', probs.length ? 'Manifiesto con problemas: ' + probs.join(', ') : 'Manifiesto correcto', (m.name || '') + ' · ' + (x.r.headers.get('content-type') || 'sin tipo'));
+  (m.icons || []).forEach(function (ic, i) {
+    var img = new Image(); row('ic' + i, 'pe', 'Ícono ' + ic.sizes + '…');
+    img.onload = function () { row('ic' + i, img.naturalWidth > 0 ? 'ok' : 'no', 'Ícono ' + ic.sizes + (ic.purpose ? ' (' + ic.purpose + ')' : '') + ' carga bien', img.naturalWidth + '×' + img.naturalHeight); };
+    img.onerror = function () { row('ic' + i, 'no', 'Ícono ' + ic.sizes + ' NO carga', ic.src); };
+    img.src = new URL(ic.src, mlink.href).href;
+  });
+}).catch(function (e) { row('man', 'no', 'No se pudo leer el manifiesto', String(e)); });
+
+row('sw', 'pe', 'Revisando el service worker…');
+if (!('serviceWorker' in navigator)) row('sw', 'no', 'Este navegador no soporta service worker');
+else navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; }).then(function (reg) {
+  row('sw', reg.active ? 'ok' : 'wa', reg.active ? 'Service worker activo' : 'Service worker aún no activo', 'alcance: ' + reg.scope);
+}).catch(function (e) { row('sw', 'no', 'El service worker NO se pudo registrar', String(e && e.message || e)); });
+
+row('hoja', 'pe', 'Revisando a qué hoja está conectada la app…');
+(function () {
+  var u = '', k = '', n = '';
+  try { u = localStorage.getItem('mf-api-url') || ''; k = localStorage.getItem('mf-api-key') || ''; n = localStorage.getItem('mf-hoja') || ''; } catch (e) {}
+  if (!u || !k) { row('hoja', 'wa', 'La app todavía no está conectada a ninguna hoja', 'ábrela y pega el código de conexión'); return; }
+  fetch(u, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ k: k, f: 'ping' }) })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j && j.s === 'ok') row('hoja', 'ok', 'Conectada a la hoja: «' + String(j.hoja || n || '?').replace(/</g, '&lt;') + '»', 'si no es tu hoja real, abre la app con ?reconectar');
+      else row('hoja', 'no', 'El script rechazó la clave guardada', 'abre la app con ?reconectar y pega el código nuevo');
+    }).catch(function () { row('hoja', 'wa', 'No pude hablar con el script ahora', n ? 'última hoja conectada: «' + n.replace(/</g, '&lt;') + '»' : ''); });
+})();
+row('bip', 'pe', 'Esperando que Chrome ofrezca instalar…');
+var deferred = null, btn = document.getElementById('inst');
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault(); deferred = e; btn.disabled = false;
+  row('bip', 'ok', 'Chrome SÍ permite instalar la app', 'toca "Instalar ahora"');
+});
+window.addEventListener('appinstalled', function () { row('bip', 'ok', 'App instalada'); });
+btn.addEventListener('click', function () { if (deferred) { deferred.prompt(); } });
+setTimeout(function () { if (!deferred && !standalone) row('bip', 'no', 'Chrome NO ofreció instalar la app', 'mándame una captura de toda esta pantalla'); }, 9000);
+</script></body></html>
