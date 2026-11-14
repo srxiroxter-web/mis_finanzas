@@ -1,7 +1,7 @@
 /* sw.js — guarda la app en el celular para que abra rápido y también sin internet.
  * Los datos NO se guardan aquí (la app ya guarda su propia copia); las llamadas al script nunca pasan por la caché. */
-var VERSION = 'mf-v3';
-var SHELL = ['./', 'index.html', 'pwa.js', 'diagnostico.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
+var VERSION = 'mf-v4';
+var SHELL = ['./', 'index.html', 'pwa.js', 'diagnostico.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-32.png'];
 var CDN = ['cdn.tailwindcss.com'];
 
 self.addEventListener('install', function (e) {
@@ -48,7 +48,7 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
   if (url.origin === self.location.origin) {
-    if (/\/icons\//.test(url.pathname)) { e.respondWith(caches.match(req).then(function (h) { return h || fetch(req); })); return; }
+    if (/\/(icon-[a-z0-9-]+|favicon-32|apple-touch-icon)\.png$/.test(url.pathname)) { e.respondWith(caches.match(req).then(function (h) { return h || fetch(req); })); return; }
     var isApp = /\/(index\.html)?$/.test(url.pathname);            // solo la portada se reemplaza por la app guardada
     if (req.mode === 'navigate' && !isApp) return;                  // cualquier otra página (manifest, sw.js, diagnóstico…) va directo a internet
     e.respondWith(networkFirst(req.mode === 'navigate' ? new Request('index.html') : req));

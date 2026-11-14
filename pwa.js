@@ -83,7 +83,7 @@
         box.setAttribute('style', 'position:fixed;inset:0;z-index:2147483000;background:#0F172A;color:#F1F5F9;display:flex;align-items:center;justify-content:center;padding:20px;font-family:ui-sans-serif,system-ui,sans-serif;overflow:auto');
         box.innerHTML =
           '<div style="width:100%;max-width:380px;text-align:center">' +
-            '<img src="icons/icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:0 0 40px rgba(52,211,153,.25)">' +
+            '<img src="icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:0 0 40px rgba(52,211,153,.25)">' +
             '<h1 style="font-size:22px;font-weight:600;margin:16px 0 4px">Conectar tu app</h1>' +
             '<p style="color:#94A3B8;font-size:14px;line-height:1.45;margin:0 0 16px">Pega el <b>código de conexión</b> que te mostró tu script (lo haces una sola vez en este celular).</p>' +
             '<textarea id="pwa-code" rows="4" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec?k=…" style="width:100%;box-sizing:border-box;background:#111C33;color:#F1F5F9;border:1px solid #334155;border-radius:14px;padding:12px;font-size:16px;resize:none"></textarea>' +
@@ -103,7 +103,7 @@
   function askConfirm(c, name) {
     var safe = String(name).replace(/[&<>"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; });
     box.firstChild.innerHTML =
-      '<img src="icons/icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:0 0 40px rgba(52,211,153,.25)">' +
+      '<img src="icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:0 0 40px rgba(52,211,153,.25)">' +
       '<h1 style="font-size:22px;font-weight:600;margin:16px 0 4px">¿Es esta tu hoja?</h1>' +
       '<p style="color:#94A3B8;font-size:14px;line-height:1.45;margin:0 0 12px">La app va a leer y escribir en:</p>' +
       '<div id="pwa-sheet" style="background:#111C33;border:1px solid #334155;border-radius:14px;padding:14px;font-size:17px;font-weight:600;word-break:break-word">' + safe + '</div>' +
