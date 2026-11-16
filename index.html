@@ -52,6 +52,10 @@
   .sbtn { width:100%; background:#38BDF8; color:#0F172A; border-radius:12px; padding:13px; font-size:15px; font-weight:600; }
   .sbtn[disabled] { opacity:.6; }
   .mv.tap { cursor:pointer; }
+  .xbtn { flex:none; width:34px; height:34px; margin:-7px -8px -7px 2px; border-radius:999px; color:#94A3B8; font-size:15px; line-height:1; background:transparent; border:0; }
+  .xbtn:active { background:rgba(248,113,113,.15); color:#F87171; }
+  .cfm { margin:8px 0 4px; padding:12px; border-radius:14px; border:1px solid rgba(248,113,113,.45); background:rgba(248,113,113,.07); }
+  .anu { opacity:.55; } .anu .tabular-nums { text-decoration:line-through; }
   .mv.tap:active { background:rgba(56,189,248,.08); }
   .sec { display:block; width:100%; border:1px solid #334155; border-radius:12px; padding:12px; font-size:14px; color:#F1F5F9; text-align:center; }
   .sec[disabled], .sbtn[disabled] { opacity:.6; }
@@ -393,12 +397,16 @@
 
     <!-- POR PAGAR -->
     <section id="v-pp" class="hidden">
+      <div id="pp-mode" class="mb-3"></div>
       <div id="pp-hero"></div>
       <div class="lbl mb-2">Persona</div>
       <div id="pp-per" class="mb-1"></div>
-      <div class="lbl mb-2">Período facturado</div>
-      <div id="pp-chips" class="mb-1"></div>
+      <div id="pp-pw">
+        <div class="lbl mb-2">Período facturado</div>
+        <div id="pp-chips" class="mb-1"></div>
+      </div>
       <div id="pp-list"></div>
+      <div id="pp-reg" class="hidden"></div>
       <div id="chart"></div>
     </section>
 
@@ -641,7 +649,7 @@
     data: null, raw: '', view: 'resumen', mainErr: '',
     mode: 'todo', from: '', to: '', person: 'Todos',
     movF: 'todos', movN: 30,
-    ppPerson: 'Todos', pSel: new Set(),
+    ppPerson: 'Todos', pSel: new Set(), ppMode: 'pend', regN: 12, showAnu: false,
     chartN: 6, chartSel: null,
     catsOpen: false, topN: 10,
     q: '', qf: 'both', qN: 4, qHits: 0,
@@ -704,6 +712,7 @@
           $('app-title').textContent = 'Bienvenida ' + user.name;
           aplicarRestriccionesLectura();
           try { window.localStorage.removeItem(CK_INV); window.localStorage.removeItem(CK_PAT); } catch (e) {}
+          if (S.data) renderAll();   // los datos pudieron dibujarse antes de entrar: se vuelven a dibujar sin los toques de administrador
         }
         showToast('¡Hola ' + user.name + '!', 'Acceso concedido', { ms: 3000 });
       } else {
@@ -1201,9 +1210,113 @@
   }
 
   /* ===================== Render: Por pagar ===================== */
-  function renderPP(animateRows) {
+  /* Historial de pagos de un gasto: se agrupa por fecha, monto, persona, razón, categoría y cuotas. */
+  function gastoKey(r) { return [r.d, r.g, r.per, r.rz, r.cat, r.cu].join('|'); }
+  function pagoKey(x) { return [x.fd, x.g, x.per, x.rz, x.cat, x.cu].join('|'); }
+  function pagosOf(r) {
+    var items = ((S.data && S.data.pagos) || []).filter(function (x) { return pagoKey(x) === gastoKey(r); })
+      .sort(function (a, b) { return a.fp < b.fp ? -1 : a.fp > b.fp ? 1 : a.i - b.i; });
+    var tot = sum(items.filter(function (x) { return !x.anu; }), function (x) { return x.m; });
+    return { items: items, prior: Math.max(0, Math.round(r.p - tot)) };
+  }
+  /* Una línea del historial. opt.x = true → muestra la ✕ para anular (solo administrador, solo en el panel). */
+  function movLine(x, opt) {
+    opt = opt || {};
+    var neg = x.m < 0, lbl = x.t === 'Corrección' ? 'Corrección' : x.t === 'Pago completo' ? 'Pago completo' : 'Abono';
+    var anu = !!x.anu;
+    var html = '<div class="' + (anu ? 'anu' : '') + '"><div class="flex justify-between items-center gap-3 mt-1 text-[13px]"><span class="min-w-0 break-words"><span class="lbl">' + esc(fmtDate(x.fp)) + '</span> · ' + esc(lbl) + '</span>' +
+      '<span class="flex items-center"><span class="tabular-nums ' + (neg ? 'c-bad' : 'c-ok') + '">' + (neg ? '' : '+') + fmt(x.m) + (anu ? '' : '<span class="lbl"> → ' + fmt(x.pa) + '</span>') + '</span>' +
+      (opt.x && !anu && x.id ? '<button type="button" class="xbtn" data-act="anulopen" data-id="' + esc(x.id) + '" aria-label="Anular este movimiento">✕</button>' : '') + '</span></div>' +
+      (anu ? '<div class="lbl" style="font-size:12px">Anulado el ' + esc(fmtDate(x.anu)) + '</div>' : '') + '</div>';
+    if (opt.x && P.confirm && P.confirm === x.id && !anu) {
+      var after = Math.max(0, Math.round(P.r.p - x.m));
+      html += '<div class="cfm"><div class="text-[13px]">¿Anular el ' + esc(lbl.toLowerCase()) + ' de <b>' + fmt(Math.abs(x.m)) + '</b> del ' + esc(fmtDate(x.fp)) + '? ' +
+        'El gasto pasará de <b>' + fmt(P.r.p) + '</b> pagados a <b>' + fmt(after) + '</b> y volverá a deber <b>' + fmt(P.r.g - after) + '</b>.</div>' +
+        '<div class="flex gap-2 mt-3"><button type="button" class="sec" style="flex:1;margin:0" data-act="anulno">Cancelar</button>' +
+        '<button type="button" class="sbtn" style="flex:1;margin:0;background:#F87171;border-color:#F87171;color:#0F172A" data-act="anulyes" id="p-anular">Anular</button></div>' +
+        '<div id="p-aerr" class="text-[13px] c-bad" role="alert"></div></div>';
+    }
+    return html;
+  }
+
+  function renderPPMode() {
+    $('pp-mode').innerHTML = [['pend', 'Por pagar'], ['reg', 'Registro de pagos']].map(function (o) {
+      return '<button class="chip ' + (S.ppMode === o[0] ? 'on' : '') + '" data-act="ppmode" data-v="' + o[0] + '">' + o[1] + '</button>';
+    }).join('');
+  }
+
+  function renderReg(animate) {
     var d = S.data; if (!d) return;
     var oneP = S.ppPerson !== 'Todos';
+    var byKey = {}, groups = [];
+    var nAnu = 0;
+    (d.pagos || []).forEach(function (x) {
+      if (oneP && x.per !== S.ppPerson) return;
+      if (x.anu) { nAnu++; if (!S.showAnu) return; }
+      var k = pagoKey(x), g = byKey[k];
+      if (!g) { g = byKey[k] = { k: k, x: x, items: [] }; groups.push(g); }
+      g.items.push(x);
+    });
+    groups.forEach(function (g) {
+      g.items.sort(function (a, b) { return a.fp < b.fp ? -1 : a.fp > b.fp ? 1 : a.i - b.i; });
+      g.last = g.items[g.items.length - 1];
+      g.act = g.items.filter(function (x) { return !x.anu; });
+      g.row = d.rows.filter(function (r) { return !r.neg && gastoKey(r) === g.k; })[0] || null;
+      g.p = g.row ? g.row.p : (g.act.length ? g.act[g.act.length - 1].pa : 0);
+      g.prior = Math.max(0, Math.round(g.p - sum(g.act, function (x) { return x.m; })));
+      g.r = Math.max(0, Math.round(g.x.g - g.p));
+    });
+    groups.sort(function (a, b) { return a.last.fp < b.last.fp ? 1 : a.last.fp > b.last.fp ? -1 : b.last.i - a.last.i; });
+    var shown = groups.slice(0, S.regN);
+    var abonado = sum(groups, function (g) { return sum(g.act, function (x) { return x.m; }); });
+    var html;
+    var chipAnu = nAnu ? '<button class="chip ' + (S.showAnu ? 'on' : '') + '" data-act="regshow">Mostrar anulados (' + nAnu + ')</button>' : '';
+    if (!groups.length && nAnu) {
+      html = chipAnu + '<div class="card"><div class="font-medium">Todos los movimientos' + (oneP ? ' de ' + esc(S.ppPerson) : '') + ' están anulados</div>' +
+        '<div class="lbl mt-1">No hay pagos activos en el registro. Toca «Mostrar anulados» para verlos tachados.</div></div>';
+    } else if (!groups.length) {
+      html = '<div class="card"><div class="font-medium">Aún no hay pagos registrados' + (oneP ? ' de ' + esc(S.ppPerson) : '') + '</div>' +
+        '<div class="lbl mt-1">Desde ahora, cada pago o abono que hagas queda anotado aquí con su fecha: ' +
+        'el día de la compra, cada abono y cuándo se completó. Los pagos que ya tenían tus gastos antes de esta función aparecen como «Antes del registro».</div></div>';
+    } else {
+      html = '<div class="card"><div class="lbl">Abonado según el registro' + (oneP ? ' · ' + esc(S.ppPerson) : '') + '</div>' +
+        '<div class="text-[28px] leading-tight font-semibold tabular-nums c-ok">' + fmt(abonado) + '</div>' +
+        '<div class="lbl mt-1">' + groups.length + (groups.length === 1 ? ' gasto con movimientos' : ' gastos con movimientos') + '</div></div>' +
+        chipAnu +
+        '<div class="lbl mb-2">' + (S.userRole === 'admin' ? 'Toca un gasto para abonar, pagar o corregir' : 'Historial de abonos por gasto') + '</div>' +
+        '<div class="card" style="padding-top:2px;padding-bottom:2px">' + shown.map(function (g) {
+          var x = g.x, pend = g.r > 0, tap = S.userRole === 'admin' && g.row;
+          return '<div class="mv' + (tap ? ' tap' : '') + '"' + (tap ? ' data-act="payopen" data-n="' + g.row.n + '"' : '') + '>' +
+            '<div class="flex justify-between gap-3"><span class="font-medium min-w-0 break-words">' + esc(x.rz || 'Sin detalle') + '</span><span class="font-medium tabular-nums">' + fmt(x.g) + '</span></div>' +
+            '<div class="flex justify-between gap-3 mt-0.5"><span class="lbl min-w-0 break-words">' + [x.per || 'Sin persona', x.cat || 'Sin categoría', 'compra ' + fmtDate(x.fd)].map(esc).join(' · ') + '</span>' +
+            '<span class="badge ' + (pend ? 'b-p' : 'b-g') + '">' + (pend ? 'PENDIENTE' : 'PAGADO') + '</span></div>' +
+            '<div style="border-left:2px solid #334155;margin:8px 0 2px 2px;padding-left:10px">' +
+              (g.prior > 0 ? '<div class="flex justify-between gap-3 mt-1 text-[13px]"><span class="lbl">Antes del registro</span><span class="tabular-nums c-ok">+' + fmt(g.prior) + '</span></div>' : '') +
+              g.items.map(function (x) { return movLine(x); }).join('') +
+            '</div>' +
+            '<div class="lbl mt-1">Pagado ' + fmt(g.p) + ' de ' + fmt(x.g) + (pend ? ' · Restante ' + fmt(g.r) : '') + '</div></div>';
+        }).join('') + '</div>';
+      if (groups.length > shown.length) html += '<button class="more" data-act="regmore">Cargar más (' + (groups.length - shown.length) + ' restantes)</button>';
+    }
+    $('pp-reg').innerHTML = html;
+    if (animate) staggerIn($('pp-reg'), '.card, .mv', 25, 40);
+  }
+
+  function renderPP(animateRows) {
+    var d = S.data; if (!d) return;
+    renderPPMode();
+    var regMode = S.ppMode === 'reg';
+    ['pp-hero', 'pp-pw', 'pp-list', 'chart'].forEach(function (id) { $(id).classList.toggle('hidden', regMode); });
+    $('pp-reg').classList.toggle('hidden', !regMode);
+    if (regMode) {
+      $('pp-per').innerHTML = ['Todos'].concat(d.persons).map(function (p) {
+        return '<button class="chip ' + (S.ppPerson === p ? 'on' : '') + '" data-act="ppper" data-v="' + esc(p) + '">' + esc(p) + '</button>';
+      }).join('');
+      renderReg(animateRows);
+      return;
+    }
+    var oneP = S.ppPerson !== 'Todos';
+    var isAdm = S.userRole === 'admin';
 
     var all = d.rows.filter(function (r) { return !r.neg && r.r > 0; });
     if (oneP) all = all.filter(function (r) { return r.per === S.ppPerson; });
@@ -1250,12 +1363,12 @@
       $('pp-list').innerHTML = '<div class="card"><div class="c-ok font-medium">Todo al día</div><div class="lbl">' +
         (oneP ? esc(S.ppPerson) + ' no tiene pagos pendientes.' : 'No tienes pagos pendientes.') + '</div></div>';
     } else {
-      $('pp-list').innerHTML = '<div class="card" style="padding-top:2px;padding-bottom:2px">' + gl.map(function (g, gi) {
+      $('pp-list').innerHTML = (isAdm ? '<div class="lbl mb-2">Toca un gasto para abonar o pagarlo</div>' : '') + '<div class="card" style="padding-top:2px;padding-bottom:2px">' + gl.map(function (g, gi) {
         var rows = g.rows.slice().sort(function (a, b) { return a.d < b.d ? 1 : a.d > b.d ? -1 : 0; });
         return '<div class="pp-group-head flex justify-between items-center" style="padding:12px 0 4px;' + (gi ? 'border-top:1px solid #334155;margin-top:4px' : '') + '">' +
           '<span class="font-semibold">' + esc(g.name) + '</span><span class="font-semibold c-bad tabular-nums">' + fmt(g.sum) + '</span></div>' +
           rows.map(function (r) {
-            return '<div class="mv"><div class="flex justify-between gap-3"><span class="min-w-0 break-words">' + esc(r.rz || 'Sin detalle') + '</span><span class="tabular-nums">' + fmt(r.r) + '</span></div>' +
+            return '<div class="mv' + (isAdm ? ' tap' : '') + '"' + (isAdm ? ' data-act="payopen" data-n="' + r.n + '"' : '') + '><div class="flex justify-between gap-3"><span class="min-w-0 break-words">' + esc(r.rz || 'Sin detalle') + '</span><span class="tabular-nums">' + fmt(r.r) + '</span></div>' +
               '<div class="lbl mt-0.5">' + esc(r.cat || 'Sin categoría') + ' · ' + esc(fmtDate(r.d)) + (r.p > 0 ? ' · de ' + fmt(r.g) : '') + '</div></div>';
           }).join('');
       }).join('') + '</div>';
@@ -2529,7 +2642,7 @@
     });
   }
 
-  var P = { open: false, r: null, view: 'abono', busy: false, id: '' };
+  var P = { open: false, r: null, view: 'abono', busy: false, id: '', fecha: '', confirm: '' };
   var fmtNum = function (n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
 
   function payRaw() { return $('p-in') ? $('p-in').value.replace(/\D/g, '') : ''; }
@@ -2572,6 +2685,17 @@
       '<span class="badge ' + (pend ? 'b-p' : 'b-g') + '">' + (pend ? 'PENDIENTE' : 'PAGADO') + '</span></div></div>' +
       '<div class="lbl mt-2">Pagado ' + fmt(r.p) + ' · Restante ' + fmt(r.r) + (r.cu ? ' · Cuotas: ' + esc(r.cu) : '') + '</div>';
 
+    var hist = pagosOf(r);
+    if (hist.items.length || hist.prior > 0) {
+      html += '<div class="mt-3"><div class="lbl">Pagos de este gasto</div>' +
+        '<div style="border-left:2px solid #334155;margin:4px 0 0 2px;padding-left:10px">' +
+        (hist.prior > 0 ? '<div class="flex justify-between gap-3 mt-1 text-[13px]"><span class="lbl">Antes del registro</span><span class="tabular-nums c-ok">+' + fmt(hist.prior) + '</span></div>' : '') +
+        hist.items.map(function (x) { return movLine(x, { x: true }); }).join('') + '</div></div>';
+    }
+    if (P.view !== 'set') {
+      html += '<div class="mt-3"><div class="lbl mb-1">Fecha del pago</div><input id="p-fecha" class="fld" type="date" aria-label="Fecha del pago" value="' + esc(P.fecha) + '" min="' + esc(r.d) + '" max="' + esc(S.data.today) + '"></div>';
+    }
+
     if (abono) {
       html +=
         '<button type="button" class="sbtn mt-4" data-act="payfull" id="p-full">Pagar completo · ' + fmt(r.r) + '</button>' +
@@ -2602,7 +2726,7 @@
     var row = S.data.rows.filter(function (x) { return x.n === n && !x.neg; })[0];
     if (!row) return;
     P.r = { n: row.n, d: row.d, g: row.g, p: row.p, r: row.r, per: row.per, rz: row.rz, cat: row.cat, cu: row.cu };
-    P.open = true; P.busy = false; P.id = uuid();
+    P.open = true; P.busy = false; P.id = uuid(); P.fecha = S.data.today; P.confirm = '';
     P.view = row.r > 0 ? 'abono' : 'set';
     showEl($('pay'));
     syncLock();
@@ -2625,6 +2749,31 @@
     if (v === 'set') { try { $('p-in').focus(); $('p-in').select(); } catch (e) {} }
   }
 
+  function anularMov() {
+    if (P.busy || !P.r || !P.confirm || S.userRole === 'read') return;
+    var r = P.r, id = P.confirm;
+    var x = ((S.data && S.data.pagos) || []).filter(function (q) { return q.id === id && !q.anu; })[0];
+    if (!x) { P.confirm = ''; renderPay(); return; }
+    P.busy = true; $('p-anular').disabled = true; $('p-anular').textContent = 'Anulando…';
+    api('anularPago', { id: id, row: r.n, snap: { d: r.d, g: r.g, p: r.p, per: r.per, rz: r.rz, cat: r.cat, cu: r.cu } }, 30000).then(function (res) {
+      P.busy = false;
+      if (!res || res.ok !== true) { $('p-anular').disabled = false; $('p-anular').textContent = 'Anular'; $('p-aerr').textContent = (res && res.msg) || 'No se pudo anular.'; shakeEl($('p-aerr')); buzz(BZ_ERR); return; }
+      x.anu = S.data.today;
+      var live = S.data.rows.filter(function (q) { return q.n === r.n && !q.neg; })[0];
+      if (live) { live.p = res.p; live.r = res.r; }
+      S.optRaw = '';
+      P.r.p = res.p; P.r.r = res.r; P.confirm = '';
+      buzz(BZ_OK);
+      showToast('Movimiento anulado', 'Pagado ' + fmt(res.p) + ' · Restante ' + fmt(res.r));
+      renderAll(); renderPay();
+      forceRefresh();
+    }).catch(function (err) {
+      P.busy = false; if ($('p-anular')) { $('p-anular').disabled = false; $('p-anular').textContent = 'Anular'; }
+      if ($('p-aerr')) $('p-aerr').textContent = 'No supe si se anuló (' + errText(err) + '). Revisa el registro.';
+      forceRefresh();
+    });
+  }
+
   function savePay(mode) {
     if (P.busy || !P.r || S.userRole === 'read') return;
     var r = P.r, c = mode === 'full' ? { newP: r.g, v: 0 } : payCalc();
@@ -2634,10 +2783,13 @@
       if (c.empty) { $('p-err').textContent = P.view === 'abono' ? 'Escribe el monto del abono.' : 'Escribe el monto pagado.'; shakeEl($('p-box')); buzz(BZ_ERR); return; }
       if (c.same) { $('p-err').textContent = 'Ese monto ya está guardado.'; shakeEl($('p-box')); buzz(BZ_ERR); return; }
     }
+    var fecha = P.view === 'set' && mode === 'set' ? S.data.today : ($('p-fecha') ? $('p-fecha').value : P.fecha) || S.data.today;
+    if (fecha > S.data.today) { $('p-err').textContent = 'La fecha del pago no puede ser futura.'; buzz(BZ_ERR); return; }
+    if (fecha < r.d) { $('p-err').textContent = 'La fecha del pago no puede ser anterior a la compra (' + fmtDate(r.d) + ').'; buzz(BZ_ERR); return; }
     $('p-err').textContent = '';
     var typed = $('p-in') ? $('p-in').value : '', pview = P.view, pid = P.id;
     var req = {
-      id: pid, mode: mode, monto: mode === 'full' ? 0 : c.v, row: r.n,
+      id: pid, mode: mode, monto: mode === 'full' ? 0 : c.v, row: r.n, fecha: fecha,
       snap: { d: r.d, g: r.g, p: r.p, per: r.per, rz: r.rz, cat: r.cat, cu: r.cu }
     };
     var find = function () { return S.data && S.data.rows.filter(function (x) { return x.n === r.n && !x.neg; })[0]; };
@@ -2679,7 +2831,8 @@
       buzz(BZ_OK);
       var title = mode === 'full' ? 'Gasto pagado' : mode === 'abono' ? 'Abono registrado' : 'Monto pagado corregido';
       var sub = (mode === 'abono' ? '+ ' + fmt(c.v) + ' · ' : '') + 'Pagado ' + fmt(res.p) + ' · Restante ' + fmt(res.r);
-      showToast(title, sub, { undo: true });
+      if (res.log === 'falta') showToast(title, sub + '. No se pudo anotar en «Registro de pagos».', { undo: true, warn: true, ms: 20000 });
+      else showToast(title, sub, { undo: true });
       forceRefresh();
     }).catch(function (err) {
       failed('No supe si se guardó (' + errText(err) + '). Revisa tus movimientos.');
@@ -2841,7 +2994,9 @@
       case 'person': S.person = v; afterFilter(); break;
       case 'movf': S.movF = v; S.movN = 30; renderChips(); renderMovs(true); break;
       case 'more': var fromN = S.movShown || 0; S.movN += 30; renderMovs(true, fromN); break;
-      case 'ppper': S.ppPerson = v; renderPP(true); break;
+      case 'ppper': S.ppPerson = v; S.regN = 12; renderPP(true); break;
+      case 'ppmode': if (S.ppMode !== v) { S.ppMode = v; S.regN = 12; buzz(8); renderPP(true); window.scrollTo(0, 0); } break;
+      case 'regmore': S.regN += 12; renderPP(); break;
       case 'pp':
         if (!v) S.pSel.clear();
         else if (S.pSel.has(v)) S.pSel.delete(v);
@@ -2886,6 +3041,10 @@
       case 'payabono': savePay('abono'); break;
       case 'paysave': savePay('set'); break;
       case 'payview': setPayView(v); break;
+      case 'anulopen': if (!P.busy) { P.confirm = t.dataset.id; renderPay(); } break;
+      case 'anulno': P.confirm = ''; renderPay(); break;
+      case 'anulyes': anularMov(); break;
+      case 'regshow': S.showAnu = !S.showAnu; renderPP(); break;
       case 'undo': undoLast(); break;
       case 'toastx': hideToast(); break;
       case 'mrange': S.mN = +v; S.mSel = null; renderMonths(); break;
@@ -2964,6 +3123,7 @@
     if (e.target && e.target.classList && e.target.classList.contains('i-cu')) renderInvPrev();
   });
   $('i-fecha').addEventListener('change', renderInvPrev);
+  $('pay-body').addEventListener('change', function (e) { if (e.target && e.target.id === 'p-fecha') P.fecha = e.target.value || P.fecha; });
   $('i-form').addEventListener('submit', function (e) { e.preventDefault(); saveInv(); });
 
   $('hs-q').addEventListener('input', function (e) {

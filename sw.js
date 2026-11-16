@@ -1,6 +1,6 @@
 /* sw.js — guarda la app en el celular para que abra rápido y también sin internet.
  * Los datos NO se guardan aquí (la app ya guarda su propia copia); las llamadas al script nunca pasan por la caché. */
-var VERSION = 'mf-v4';
+var VERSION = 'mf-v7';
 var SHELL = ['./', 'index.html', 'pwa.js', 'diagnostico.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-32.png'];
 var CDN = ['cdn.tailwindcss.com'];
 
